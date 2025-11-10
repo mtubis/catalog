@@ -1,59 +1,251 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Product Catalog (Photovoltaic)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A small, production‑minded Laravel backend for browsing, filtering and searching photovoltaic **batteries**, **solar panels** and **connectors**. Data source: three CSV files. No auth/editor. API‑first; minimal optional UI.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tech Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+* **Laravel 12** (PHP 8.3+)
+* **PostgreSQL** (full‑text search via `tsvector`)
+* **Redis** (sessions, cache, queues) via **Laravel Sail**
+* Optional: `resources/*` for a minimal demo page
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+> This repo is Dockerized with **Laravel Sail**. You only need **Docker** & **Docker Compose** installed locally.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Quick Start (90 seconds)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```bash
+# 1) Install PHP deps & generate env
+composer install
+cp .env.example .env
 
-## Laravel Sponsors
+# 2) Configure Sail services (already committed in repo)
+./vendor/bin/sail up -d
+./vendor/bin/sail artisan key:generate
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+# 3) Set recommended env switches (cache/sessions on Redis)
+sed -i "s/^CACHE_STORE=.*/CACHE_STORE=redis/" .env || true
+sed -i "s/^SESSION_DRIVER=.*/SESSION_DRIVER=redis/" .env || true
+printf "\nREDIS_HOST=redis\nDB_CONNECTION=pgsql\nDB_HOST=pgsql\nDB_PORT=5432\n" >> .env
 
-### Premium Partners
+# 4) Migrate & seed base data
+./vendor/bin/sail artisan migrate --seed
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+# 5) Import CSVs (see Data section for file names)
+./vendor/bin/sail artisan catalog:import --dir=storage/app/data
 
-## Contributing
+# 6) Hit the API
+curl 'http://localhost/api/products?category=batteries&capacity_min=5&capacity_max=10'
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+> First run may take a moment as Docker pulls images.
 
-## Code of Conduct
+---
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Configuration
 
-## Security Vulnerabilities
+Key `.env` values (already set by Quick Start):
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```
+APP_URL=http://localhost
+DB_CONNECTION=pgsql
+DB_HOST=pgsql
+DB_PORT=5432
+DB_DATABASE=laravel
+DB_USERNAME=sail
+DB_PASSWORD=password
+
+CACHE_STORE=redis
+SESSION_DRIVER=redis
+QUEUE_CONNECTION=redis
+REDIS_HOST=redis
+```
+
+### API Routing (Laravel 11/12)
+
+Ensure `bootstrap/app.php` includes:
+
+```php
+$app->withRouting(
+    web: __DIR__.'/../routes/web.php',
+    api: __DIR__.'/../routes/api.php',
+    commands: __DIR__.'/../routes/console.php',
+    health: '/up',
+);
+```
+
+---
+
+## Data
+
+Place the three CSVs in `storage/app/data/` (or point `--dir` to your location). Expected file names & headers:
+
+* `batteries.csv`: `id,name,manufacturer,price,capacity,description`
+* `solar_panels.csv`: `id,name,manufacturer,price,power_output,description`
+* `connectors.csv`: `id,name,manufacturer,price,connector_type,description`
+
+Importer is **idempotent** using `(source_category, source_id)` and will upsert rows.
+
+```bash
+./vendor/bin/sail artisan catalog:import --dir=storage/app/data
+```
+
+---
+
+## API
+
+`GET /api/products` with filters (all optional):
+
+* `q` — full‑text search across name, manufacturer, description (Postgres `websearch_to_tsquery`)
+* `category` — `batteries | solar-panels | connectors`
+* `manufacturer[]` — array of manufacturer names
+* `price_min`, `price_max` — decimal
+* Batteries: `capacity_min`, `capacity_max`
+* Solar panels: `power_min`, `power_max`
+* Connectors: `connector_type[]` — array of connector type strings
+* Pagination: `page`, `per_page` (default 15, max 100)
+
+Examples:
+
+```
+/api/products?category=batteries&capacity_min=5&capacity_max=10
+/api/products?category=solar-panels&power_min=350&power_max=500
+/api/products?q=mono+perc&price_min=100&price_max=400
+/api/products?category=connectors&connector_type[]=MC4&connector_type[]=Type2
+/api/products?manufacturer[]=BrandA&manufacturer[]=BrandB
+```
+
+Response shape (excerpt):
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "Alpha Mono 400W",
+      "manufacturer": "SunCorp",
+      "price": 199.0,
+      "description": "...",
+      "category": { "slug": "solar-panels", "name": "Solar Panels" },
+      "specs": { "capacity": null, "power_output": 400, "connector_type": null }
+    }
+  ],
+  "links": { ... },
+  "meta": { ... }
+}
+```
+
+---
+
+## Testing
+
+Use a separate Postgres database and array drivers for cache/session. Example `.env.testing`:
+
+```
+APP_ENV=testing
+APP_DEBUG=true
+APP_URL=http://localhost
+APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+LOG_CHANNEL=null
+LOG_LEVEL=warning
+
+DB_CONNECTION=pgsql
+DB_HOST=pgsql
+DB_PORT=5432
+DB_DATABASE=catalog_testing
+DB_USERNAME=sail
+DB_PASSWORD=password
+
+CACHE_STORE=array
+SESSION_DRIVER=array
+QUEUE_CONNECTION=sync
+MAIL_MAILER=array
+BROADCAST_DRIVER=log
+FILESYSTEM_DISK=local
+TELESCOPE_ENABLED=false
+```
+
+Create the DB once and run tests:
+
+```bash
+./vendor/bin/sail exec pgsql createdb -U sail catalog_testing || true
+./vendor/bin/sail artisan test
+```
+
+### Factories note
+
+Models use `HasFactory`. We also force factory name guessing in `AppServiceProvider`:
+
+```php
+use Illuminate\Database\Eloquent\Factories\Factory;
+Factory::guessFactoryNamesUsing(fn ($model) => 'Database\\Factories\\'.class_basename($model).'Factory');
+```
+
+---
+
+## Architecture Notes
+
+* Normalized schema: `products` + per‑category specs (`battery_specs`, `solar_panel_specs`, `connector_specs`).
+* Postgres FTS: `searchable tsvector` (stored) + GIN index; query via `websearch_to_tsquery`.
+* Filters implemented as a **Pipeline** (composable, testable).
+* CSV import is transactional & idempotent.
+
+### MySQL switch (if needed)
+
+* Remove the `tsvector` column & index.
+* Add FULLTEXT on (`name`,`manufacturer`,`description`).
+* Replace search WHERE with `MATCH(...) AGAINST (? IN BOOLEAN MODE)`.
+
+---
+
+## Common Pitfalls & Fixes
+
+* **404 on /api/products** → ensure `bootstrap/app.php` includes `api: __DIR__.'/../routes/api.php'`.
+* **sessions/cache table not found** → use Redis drivers (`SESSION_DRIVER=redis`, `CACHE_STORE=redis`) or create DB tables via `session:table` / `cache:table`.
+* **Vite manifest not found** → run `npm run build` or remove `@vite` from the blade.
+* **Unique slug errors in tests** → factories provide deterministic states (`batteries/solar/connector`) and random slugs elsewhere.
+
+---
+
+## Deployment (example: Render/Fly/Railway)
+
+* Set env vars: `APP_KEY`, `APP_ENV=production`, `DB_*`, `REDIS_*`.
+* Run on release: `php artisan migrate --force && php artisan catalog:import --dir=storage/app/data`.
+* Ensure `storage/app/data` is present (mount or bundle sample CSVs) or point importer to your data source.
+
+Sample Procfile:
+
+```
+web: vendor/bin/heroku-php-apache2 public/
+release: php artisan migrate --force && php artisan catalog:import --dir=storage/app/data
+```
+
+---
+
+## Project Structure
+
+```
+app/
+  Domain/Catalog/
+    Models/*
+    Filters/*
+  Http/
+    Controllers/*
+    Requests/*
+  Console/Commands/ImportCatalog.php
+routes/
+  api.php, web.php
+database/
+  migrations/*, seeders/*, factories/*
+resources/views/catalog.blade.php (optional demo UI)
+```
+
+---
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT.
