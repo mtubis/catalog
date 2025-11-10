@@ -1,52 +1,28 @@
-# ---- base runtime ----
-FROM php:8.3-fpm-alpine AS base
+FROM php:8.3-fpm-alpine
 
+RUN apk add --no-cache nginx bash curl icu-dev oniguruma-dev libzip-dev libpq-dev tzdata supervisor \
+ && docker-php-ext-install -j$(nproc) intl bcmath pdo pdo_pgsql zip opcache
 
-# System deps
-RUN apk add --no-cache \
-bash git curl unzip icu-dev oniguruma-dev libzip-dev libpq-dev \
-tzdata
-
-
-# PHP extensions
-RUN docker-php-ext-install -j$(nproc) \
-intl bcmath pdo pdo_pgsql zip opcache
-
-
-# Redis
-RUN pecl install redis \
-&& docker-php-ext-enable redis
-
-
-# Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-
-# PHP/OPcache
-COPY docker/php/conf.d/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
-
-
 WORKDIR /var/www/html
+COPY . .
 
+# produkcyjny vendor i prawa
+RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader \
+ && php artisan storage:link || true \
+ && chown -R www-data:www-data /var/www/html \
+ && find /var/www/html -type f -exec chmod 644 {} \; \
+ && find /var/www/html -type d -exec chmod 755 {} \; \
+ && chmod -R 775 storage bootstrap/cache
 
-# Code copy
-COPY . /var/www/html
-
-
-# Permissions for storage/bootstrap
-RUN mkdir -p storage/bootstrap/cache \
-&& chown -R www-data:www-data storage bootstrap/cache \
-&& chmod -R 775 storage bootstrap/cache
-
-
-# Entrypoint – will do composer install, cache, migrations (conditionally)
+# Nginx + supervisord + entrypoint
+COPY docker/nginx/default.conf.template /etc/nginx/http.d/default.conf.template
+COPY docker/supervisord.conf /etc/supervisord.conf
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-
-USER www-data
-
-
-EXPOSE 9000
+ENV PORT=8080
+EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["php-fpm", "-F"]
+CMD ["supervisord","-c","/etc/supervisord.conf"]

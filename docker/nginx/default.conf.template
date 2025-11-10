@@ -1,0 +1,20 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /var/www/html/public;           # IMPORTANT: docroot = /public
+    index index.php index.html;
+
+    location / { try_files $uri $uri/ /index.php?$query_string; }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_pass 127.0.0.1:9000;     # PHP-FPM in the same container
+        fastcgi_read_timeout 60s;
+    }
+
+    location ~* \.(?:css|js|jpg|jpeg|gif|png|svg|ico|webp)$ {
+        expires 7d; access_log off;
+        add_header Cache-Control "public, max-age=604800";
+    }
+}
