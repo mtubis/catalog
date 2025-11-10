@@ -13,7 +13,7 @@ services:
       APP_KEY: ${APP_KEY}
     # DB
       DB_CONNECTION: pgsql
-      DB_HOST: db
+      DB_HOST: pgsql
       DB_PORT: 5432
       DB_DATABASE: laravel
       DB_USERNAME: sail
