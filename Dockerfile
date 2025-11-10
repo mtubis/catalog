@@ -1,6 +1,8 @@
 FROM php:8.3-fpm-alpine
 
-RUN apk add --no-cache nginx bash curl icu-dev oniguruma-dev libzip-dev libpq-dev tzdata supervisor \
+# + nginx, supervisor, gettext (envsubst)
+RUN apk add --no-cache \
+    nginx bash curl icu-dev oniguruma-dev libzip-dev libpq-dev tzdata supervisor gettext \
  && docker-php-ext-install -j$(nproc) intl bcmath pdo pdo_pgsql zip opcache
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -8,7 +10,6 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 COPY . .
 
-# produkcyjny vendor i prawa
 RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader \
  && php artisan storage:link || true \
  && chown -R www-data:www-data /var/www/html \
